@@ -131,9 +131,9 @@ pub fn run_install(with_deps: bool) {
     
     // On Windows, we need to use cmd.exe to run npx because npx is actually npx.cmd
     // and Command::new() doesn't resolve .cmd files the way the shell does.
-    // Pass the entire command as a single string to /c to handle paths with spaces.
+    // Use full path to cmd.exe to ensure it works from MSYS/Git Bash contexts.
     #[cfg(windows)]
-    let status = Command::new("cmd")
+    let status = Command::new("C:\\Windows\\System32\\cmd.exe")
         .args(["/c", "npx playwright install chromium"])
         .status();
     

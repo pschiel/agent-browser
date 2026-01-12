@@ -15,7 +15,10 @@ ARCH=$(uname -m)
 case "$OS" in darwin) OS="darwin" ;; linux) OS="linux" ;; mingw*|msys*|cygwin*) OS="win32" ;; esac
 case "$ARCH" in x86_64|amd64) ARCH="x64" ;; aarch64|arm64) ARCH="arm64" ;; esac
 
-BINARY="$SCRIPT_DIR/agent-browser-${OS}-${ARCH}"
+# Add .exe extension on Windows
+EXT=""
+[ "$OS" = "win32" ] && EXT=".exe"
+BINARY="$SCRIPT_DIR/agent-browser-${OS}-${ARCH}${EXT}"
 
 if [ -f "$BINARY" ] && [ -x "$BINARY" ]; then
   exec "$BINARY" "$@"

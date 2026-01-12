@@ -104,7 +104,9 @@ fn get_port_for_session(session: &str) -> u16 {
     for c in session.chars() {
         hash = ((hash << 5).wrapping_sub(hash)).wrapping_add(c as i32);
     }
-    49152 + ((hash.abs() as u16) % 16383)
+    // Cast to u32 before modulo to match TypeScript's Math.abs(hash) % 16383
+    let port_offset = (hash.abs() as u32 % 16383) as u16;
+    49152 + port_offset
 }
 
 #[cfg(unix)]
@@ -145,11 +147,20 @@ fn daemon_ready(session: &str) -> bool {
     #[cfg(windows)]
     {
         let port = get_port_for_session(session);
-        TcpStream::connect_timeout(
-            &format!("127.0.0.1:{}", port).parse().unwrap(),
-            Duration::from_millis(50),
-        )
-        .is_ok()
+        // Increased timeout from 50ms to 200ms for Windows reliability
+        // Retry up to 3 times to handle intermittent connection issues
+        for _ in 0..3 {
+            if TcpStream::connect_timeout(
+                &format!("127.0.0.1:{}", port).parse().unwrap(),
+                Duration::from_millis(200),
+            )
+            .is_ok()
+            {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        false
     }
 }
 
@@ -216,13 +227,9 @@ pub fn ensure_daemon(session: &str, headed: bool, executable_path: Option<&str>)
     {
         use std::os::windows::process::CommandExt;
         
-        // On Windows, use cmd.exe to run node to ensure proper PATH resolution.
-        // This handles cases where node.exe isn't directly in PATH but node.cmd is.
-        // Pass the entire command as a single string to /c to handle paths with spaces.
-        let cmd_string = format!("node \"{}\"", daemon_path.display());
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/c")
-            .arg(&cmd_string)
+        // On Windows, spawn node.exe directly to avoid cmd.exe path resolution issues
+        let mut cmd = Command::new("node.exe");
+        cmd.arg(daemon_path)
             .env("AGENT_BROWSER_DAEMON", "1")
             .env("AGENT_BROWSER_SESSION", session);
 
@@ -234,11 +241,11 @@ pub fn ensure_daemon(session: &str, headed: bool, executable_path: Option<&str>)
             cmd.env("AGENT_BROWSER_EXECUTABLE_PATH", path);
         }
 
-        // CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
+        // CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW to prevent console window
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-        const DETACHED_PROCESS: u32 = 0x00000008;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         
-        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS)
+        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
